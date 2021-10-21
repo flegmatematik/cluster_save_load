@@ -1,2 +1,5 @@
-# cluster_save_load
-Espresso script using Objects in Fluid add-on. Focused on clustering of objects (ball-shaped and RBC shaped). Saving and loading of cluster mesh, and it's features
+# zhlukovanie-buniek
+
+contains file oif_classes.py which should just be copied into your object_in_fluid directory to avoid further complications. 
+
+also, should contain test.py or similar script, which is 100% runable
