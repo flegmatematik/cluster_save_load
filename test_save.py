@@ -162,7 +162,7 @@ cluster.set_self_cell_soft_sphere_interactions(system=system)
 cluster.deform(system=system, vtk_directory=vtk_directory, max_deformation_n = 70)
 print("deform done")
 
-cluster.save_cluster(directory + "/save")
+cluster.save_cluster(directory=directory + "/save", save_interactions=True)
 
 exit()
     

@@ -1778,23 +1778,30 @@ class OifCell:
 class OifCluster:
     def __init__(self, cells=[]):
         self.cells = cells
+        
+        # morse interactions
+        self.m_eps = None
+        self.m_alpha = None
+        self.m_cutoff = None
+        self.m_rmin = None
 
-        self.sim_id = 0
-        self.vtk_dir = './'
-
-        self.morse_cutoff = 0.0
-        self.morse_eps = 0.0
-        self.morse_alpha = 0
-        self.morse_rmin = 0.0
-
-        # sphere
-        self.sphere_cutoff = 0.0
-        self.sphere_offset = 0.0
-        self.sphere_n = 0
-        self.sphere_a = 0.0
-
-    def set_vtk_dir(self, vtk_dir='./'):
-        self.vtk_dir = vtk_dir
+        # soft-sphere interactions
+        self.soft_a = None
+        self.soft_n = None
+        self.soft_cutoff = None
+        self.soft_offset = None
+        
+        # "self-cell" self soft-sphere interactions
+        self.sc_a = None
+        self.sc_n = None
+        self.sc_cutoff = None
+        self.sc_offset = None
+        
+        # membrane collision interactions
+        self.mc_a = None
+        self.mc_n = None
+        self.mc_cutoff = None
+        self.mc_offset = None
 
     def get_origin(self):
         center = np.array([0.0, 0.0, 0.0])
@@ -1808,9 +1815,6 @@ class OifCluster:
             new_position = cell.get_origin() - old_origin + new_origin
             cell.set_origin(new_position)
 
-    def get_num_cells(self):
-        return len(self.cells)
-
     def get_cells(self):
         return self.cells
 
@@ -1820,14 +1824,11 @@ class OifCluster:
             num_points += self.cells[i].get_n_nodes()
         return num_points
 
-    def distance_cells(self, a, b):
-        return np.sqrt((a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2 + (a[2] - b[2]) ** 2)
-
     def get_vtk_cluster(self, dir, num):
         for id, cell in enumerate(self.cells):
             cell.output_vtk_pos_folded(file_name=dir + "/cell" + str(id) + "_" + str(num) + ".vtk")
 
-    def get_vtk_cluster_interactions(self,out_file):
+    def get_vtk_proximity_interactions(self,out_file, max_distance=0.5):
         pairs = []
         positions1 = {}
         positions2 = {}
@@ -1845,7 +1846,7 @@ class OifCluster:
                 for j in self.cells[k + 1].mesh.points:
                     ipos = positions1[i.part_id]
                     jpos = positions2[j.part_id]
-                    if self.distance_cells(ipos, jpos) <= self.cutoff:
+                    if self.distance_cells(ipos, jpos) <= max_distance:
                         line = [ipos[0], ipos[1], ipos[2], jpos[0], jpos[1], jpos[2]]
                         pairs.append(line)
         output_vtk_lines(lines=pairs, out_file=out_file)
@@ -1853,15 +1854,12 @@ class OifCluster:
     def add_cells(self, cells):
         self.cells.extend(cells);
 
-
     def add_cell(self, cell):
         self.cells.append(cell)
-
 
     def set_velocity(self, new_velocity=(0.0, 0.0, 0.0)):
         for c in self.cells:
             c.set_velocity(new_velocity)
-
 
     def get_velocity(self):
         velocities = []
@@ -1874,39 +1872,6 @@ class OifCluster:
         for c in self.cells:
             velocity += c.get_velocity()
         return velocity / len(self.cells)
-
-    def set_morse_variables(self, eps=0.0145, alpha=10, cutoff=0.7, rmin=0.45):
-        self.morse_cutoff = cutoff;
-        self.morse_eps = eps;
-        self.morse_alpha = alpha;
-        self.morse_rmin = rmin;
-
-    def set_sphere_variables(self, a=0.00022, n=2, cutoff=0.2, offset=0.2):
-        self.sphere_cutoff = cutoff;
-        self.sphere_offset = offset;
-        self.sphere_n = n;
-        self.sphere_a = a;
-
-    def enable_morse_on_cluster(self, system, eps=0.0145, alpha=10, cutoff=0.7, rmin=0.45, start_cell_type = 1):
-        self.set_morse_variables(eps, alpha, cutoff, rmin)
-
-        for i in range(start_cell_type, len(self.cells) + start_cell_type):
-            for j in range(i + 1, len(self.cells)+ start_cell_type):
-                system.non_bonded_inter[i, j].morse.set_params(eps=self.morse_eps,
-                                                               alpha=self.morse_alpha,
-                                                               cutoff=self.morse_cutoff,
-                                                               rmin=self.morse_rmin)
-
-    def enable_sphere_on_cluster(self, system, a=0.00022, n=2, cutoff=0.2, offset=0.2, start_cell_type = 1):
-        self.set_sphere_variables(a, n, cutoff, offset);
-
-        for i in range(start_cell_type, len(self.cells) + start_cell_type):
-            for j in range(i + 1, len(self.cells)+ start_cell_type):
-                system.non_bonded_inter[i, j].soft_sphere.set_params(a=self.sphere_a,
-                                                                     n=self.sphere_n,
-                                                                     cutoff=self.sphere_cutoff,
-                                                                     offset=self.sphere_offset)
-
 
     def set_rotation(self, rotate=(0.0, 0.0, 0.0)):
         origin = np.array(self.get_origin())
@@ -1955,6 +1920,13 @@ class OifCluster:
                 z_max = cell_pos_bounds[5]
 
         return [x_min, x_max, y_min, y_max, z_min, z_max]
+        
+    def set_cell_boundary_interactions(self, system, boundary_particle_type, soft_a=0.00022, soft_n=0.5, soft_cutoff=0.5, soft_offset=0):
+        for cell in self.cells:
+            system.non_bonded_inter[cell.particle_type,boundary_particle_type].soft_sphere.set_params(a=soft_a,
+                                                                                                      n=soft_n,
+                                                                                                      cutoff=soft_cutoff,
+                                                                                                      offset=soft_offset)
         
     def set_soft_sphere_interactions(self, system, soft_a=0.00022, soft_n=0.5, soft_cutoff=0.5, soft_offset=0):
         self.soft_a = soft_a
@@ -2314,7 +2286,7 @@ class OifCluster:
         for i, cell in enumerate(self.cells):
             cell.output_vtk_pos_folded(file_name=vtk_directory + "/cell" + str(i) + "_1.vtk")
     
-    def save_cluster(self, directory):
+    def save_cluster(self, directory, save_interactions=True):
         import os
         import json
         import shutil
@@ -2323,6 +2295,10 @@ class OifCluster:
         nodes_files = []
         triangles_files = []
         cell_types = []
+        
+        # centers the cluster into [0,0,0] position -> it has to be reverted at the end of the script.
+        old_origin = self.get_origin()
+        self.set_origin([0,0,0])
 
         data = {}
         data['cells'] = []
@@ -2370,12 +2346,12 @@ class OifCluster:
             # cell type variables
             json_cell_type['resize'] = cell_type.resize
             json_cell_type['ks'] = cell_type.ks
-            #json_cell_type['kslin'] = cell_type.kslin
+            json_cell_type['kslin'] = cell_type.kslin
             json_cell_type['kb'] = cell_type.kb
             json_cell_type['kal'] = cell_type.kal
             json_cell_type['kag'] = cell_type.kag
             json_cell_type['kv'] = cell_type.kv
-            #json_cell_type['kvisc'] = cell_type.kvisc
+            json_cell_type['kvisc'] = cell_type.kvisc
             json_cell_type['normal'] = cell_type.normal
             
             json_cell_types[i] = json_cell_type
@@ -2384,7 +2360,55 @@ class OifCluster:
         
         data['cell_types'] = json_cell_types
             
-        print("cell types: " + str(len(cell_types)))
+        # interactions saving
+        if(save_interactions):
+            interactions = {}
+            
+            # morse
+            if(self.m_eps is not None and self.m_alpha is not None and
+               self.m_cutoff is not None and self.m_rmin is not None):
+               morse = {}
+               morse['m_eps'] = self.m_eps
+               morse['m_alpha'] = self.m_alpha
+               morse['m_cutoff'] = self.m_cutoff
+               morse['m_rmin'] = self.m_rmin
+               
+               interactions['morse'] = morse
+            
+            # soft-sphere
+            if(self.soft_a is not None and self.soft_n is not None and
+               self.soft_cutoff is not None and self.soft_offset is not None):
+               soft_sphere = {}
+               soft_sphere['soft_a'] = self.soft_a
+               soft_sphere['soft_n'] = self.soft_n
+               soft_sphere['soft_cutoff'] = self.soft_cutoff
+               soft_sphere['soft_offset'] = self.soft_offset
+               
+               interactions['soft_sphere'] = soft_sphere
+            
+            # self-cell soft-sphere
+            if(self.sc_a is not None and self.sc_n is not None and
+               self.sc_cutoff is not None and self.sc_offset is not None):
+               self_cell = {}
+               self_cell['sc_a'] = self.sc_a
+               self_cell['sc_n'] = self.sc_n
+               self_cell['sc_cutoff'] = self.sc_cutoff
+               self_cell['sc_offset'] = self.sc_offset
+               
+               interactions['self_cell'] = self_cell
+               
+            # membrane collision
+            if(self.mc_a is not None and self.mc_n is not None and
+               self.mc_cutoff is not None and self.mc_offset is not None):
+               membrane_collision = {}
+               membrane_collision['mc_a'] = self.mc_a
+               membrane_collision['mc_n'] = self.mc_n
+               membrane_collision['mc_cutoff'] = self.mc_cutoff
+               membrane_collision['mc_offset'] = self.mc_offset
+               
+               interactions['membrane_collision'] = membrane_collision
+            
+            data['interactions'] = interactions
         
         with open(directory + '/data.json', 'w') as outfile:
             json.dump(data, outfile)
@@ -2397,7 +2421,11 @@ class OifCluster:
         for file in triangles_files:
             shutil.copyfile(file, directory + "/triangles_files/" + os.path.basename(file))
        
-    def load_cluster(self, directory, system):
+        # reverts cluster origin into it's previous position
+        self.set_origin(old_origin)
+            
+       
+    def load_cluster(self, system, directory, origin=[0,0,0], load_interactions=True):
         import json
         f = open(directory + '/data.json',)  
         data = json.load(f)
@@ -2411,16 +2439,19 @@ class OifCluster:
                                        check_orientation=False,
                                        system=system,
                                        ks=cell_type['ks'],
+                                       kslin=cell_type['kslin'],
                                        kb=cell_type['kb'],
                                        kal=cell_type['kal'],
                                        kag=cell_type['kag'],
                                        kv=cell_type['kv'],
+                                       kvisc=cell_type['kvisc'],
                                        normal=cell_type['normal'],
                                        resize=cell_type['resize'])
+                                       
             cell_types[int(type_key)] = typeCell                   
-            
+              
         json_cells = data['cells']
-        cells = [None] * len(json_cells)
+        cells = []
         
         for index, cell in enumerate(json_cells):
             cell_type_key = cell['cell_type']
@@ -2439,11 +2470,43 @@ class OifCluster:
             for i, point in enumerate(new_cell.mesh.points):
                 point.set_pos(positions[i])
                 
-            cells[index] = new_cell
+            cells.append(new_cell)
             
         self.add_cells(cells)
+        self.set_origin(origin)
         
-        return cell_types[0]
+        if load_interactions:        
+            json_interactions = data['interactions']
+            if 'morse' in json_interactions:
+                morse = json_interactions['morse']
+                
+                self.set_morse_interactions(system=system, m_eps=morse['m_eps'], 
+                                                           m_alpha=morse['m_alpha'], 
+                                                           m_cutoff=morse['m_cutoff'],
+                                                           m_rmin=morse['m_rmin'])
+            if 'soft_sphere' in json_interactions:
+                soft_sphere = json_interactions['soft_sphere']
+                
+                self.set_soft_sphere_interactions(system=system, soft_a=soft_sphere['soft_a'],
+                                                                 soft_n=soft_sphere['soft_n'], 
+                                                                 soft_cutoff=soft_sphere['soft_cutoff'], 
+                                                                 soft_offset=soft_sphere['soft_offset'])
+             
+            if 'self_cell' in json_interactions:
+                self_cell = json_interactions['self_cell']
+                
+                self.set_self_cell_soft_sphere_interactions(system=system, sc_a=self_cell['sc_a'], 
+                                                                           sc_n=self_cell['sc_n'], 
+                                                                           sc_cutoff=self_cell['sc_cutoff'],
+                                                                           sc_offset=self_cell['sc_offset'])
+                
+            if 'membrane_collision' in json_interactions:
+                membrane_collision = json_interactions['membrane_collision']
+               
+                self.set_membrane_collision(system=system, mc_a=membrane_collision['mc_a'], 
+                                                           mc_n=membrane_collision['mc_n'], 
+                                                           mc_cutoff=membrane_collision['mc_cutoff'], 
+                                                           mc_offset=membrane_collision['mc_offset'])
 
 class StarCluster(OifCluster):
     def __init__(self, cell_type=None, radius=4, cluster_centroid=[0.0, 0.0, 0.0]):
